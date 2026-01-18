@@ -1,9 +1,18 @@
-"use client"
+"use client";
 
-import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
-import { z } from "zod"
-import Link from "next/link"
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+} from "firebase/auth";
+
+import { auth } from "@/firebase/client";
+import { signUp, signIn } from "@/lib/actions/auth.action";
 
 import {
   Form,
@@ -12,30 +21,29 @@ import {
   FormItem,
   FormLabel,
   FormMessage,
-} from "@/components/ui/form"
-
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { useRouter } from "next/navigation"
-import { toast } from "sonner"
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 // -------------------- TYPES --------------------
-type FormType = "sign-in" | "sign-up"
+type FormType = "sign-in" | "sign-up";
 
 // -------------------- SCHEMA --------------------
 const authFormSchema = (type: FormType) =>
   z.object({
-    name: type === "sign-up"
-      ? z.string().min(3, "Name must be at least 3 characters")
-      : z.string().optional(),
+    name:
+      type === "sign-up"
+        ? z.string().min(3, "Name must be at least 3 characters")
+        : z.string().optional(),
     email: z.string().email("Invalid email"),
     password: z.string().min(6, "Password must be at least 6 characters"),
-  })
+  });
 
 // -------------------- COMPONENT --------------------
 const AuthForm = ({ type }: { type: FormType }) => {
   const router = useRouter();
-  const formSchema = authFormSchema(type)
+  const isSignIn = type === "sign-in";
+  const formSchema = authFormSchema(type);
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
@@ -44,21 +52,58 @@ const AuthForm = ({ type }: { type: FormType }) => {
       email: "",
       password: "",
     },
-  })
+  });
 
-  const isSignIn = type === "sign-in"
+  const onSubmit = async (values: z.infer<typeof formSchema>) => {
+    try {
+      const { email, password } = values;
 
-  const onSubmit = (values: z.infer<typeof formSchema>) => {
-    if (type === "sign-up") {
-      toast.success("Account created successfully!");
-       router.push("/sign-in"); 
-      console.log("Sign Up", values)
-    } else {
+      // ---------- SIGN UP ----------
+      if (!isSignIn) {
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password
+        );
+
+        const result = await signUp({
+          uid: userCredential.user.uid,
+          name: values.name!,
+          email,
+        });
+
+        if (!result.success) {
+          toast.error(result.message);
+          return;
+        }
+
+        toast.success("Account created successfully!");
+        router.push("/sign-in");
+        return;
+      }
+
+      // ---------- SIGN IN ----------
+      const userCredential = await signInWithEmailAndPassword(
+        auth,
+        email,
+        password
+      );
+
+      const idToken = await userCredential.user.getIdToken();
+
+      if (!idToken) {
+        toast.error("Sign in failed");
+        return;
+      }
+
+      await signIn({ email, idToken });
+
       toast.success("Signed in successfully!");
-      router.push("/")
-      console.log("Sign In", values)
+      router.push("/");
+    } catch (error: any) {
+      toast.error(error.message || "Something went wrong");
     }
-  }
+  };
 
   return (
     <div className="card-border lg:min-w-[566px]">
@@ -137,7 +182,7 @@ const AuthForm = ({ type }: { type: FormType }) => {
         </Link>
       </p>
     </div>
-  )
-}
+  );
+};
 
-export default AuthForm
+export default AuthForm;
